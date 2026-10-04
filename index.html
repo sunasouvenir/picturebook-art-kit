@@ -1,4 +1,9 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>그림책 미술키트</title><meta name="description" content="그림책과 함께하는 미술 프로그램, 수업 일정, 키트 준비물을 챙기는 선생님용 앱">
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#F9D5C2">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"><link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="미술키트"><meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 <title>그림책 미술키트</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -422,6 +427,10 @@ ul.extras small{font-size:11px;color:var(--muted)}
 .tabbar button[aria-current="page"]{color:var(--ink);font-weight:700}
 .tabbar button[aria-current="page"] svg{color:var(--teal)}
 .badge{position:absolute;top:0;left:calc(50% + 6px);min-width:16px;height:16px;border-radius:999px;background:var(--mustard);color:var(--on-tile);font-size:10px;font-style:normal;font-weight:700;line-height:16px;padding:0 4px}
+.installbar{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:center;width:100%;border:0;border-radius:16px;background:var(--navy);color:var(--on-navy);padding:12px 16px;text-align:left}
+.installbar b{font-size:13px}
+.installbar small{grid-row:2;font-size:11px;opacity:.85}
+.installbar span{grid-row:1/3;grid-column:2;font-size:20px}
 .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--navy);color:var(--on-navy);padding:8px 16px;border-radius:999px;font-size:12px;font-weight:500;z-index:50;max-width:calc(100% - 32px);box-shadow:var(--shadow-hi)}
 
 /* 그림 */
@@ -954,6 +963,7 @@ function openDrawer(){
   const cur=({week:"course",pick:"course",cedit:"course"})[route.name]||route.name;
   $("#drawer").innerHTML=`<div class="dr-head">${svg.avatar}<b>선생님</b><small>그림책 미술키트</small></div>
     <ul>${items.map(([n,l])=>`<li><button type="button" data-go="${n}" data-root="1" ${cur===n?'aria-current="page"':""}>${l}</button></li>`).join("")}</ul>
+    ${canOfferInstall()?`<button class="btn primary" type="button" data-install style="align-self:flex-start">앱으로 설치하기</button>`:""}
     <p class="dr-brand">오늘도 즐거운<br>미술 시간!</p>`;
   $("#drawer").hidden=false;$("#dscrim").hidden=false;$("#drawer").querySelector("button").focus();
 }
@@ -1052,6 +1062,7 @@ home:{html(){
   return `<header class="hero t-peach"><div class="barrow">${menuBtn()}<span></span><span></span></div>
     <div class="herorow"><h1>안녕하세요,<br>선생님!</h1>${svg.plant}</div></header>
   <div class="pad stack">
+    ${canOfferInstall()?`<button class="installbar" type="button" data-install><b>앱으로 설치하기</b><small>홈 화면에 아이콘이 생기고 인터넷이 없어도 열려요</small><span aria-hidden="true">›</span></button>`:""}
     <p class="lead">오늘 할 일을 골라 보세요</p>
     <div class="tiles">
       ${tile("course","수업 확인","teal",svg.cal,cl.length?`수업 ${cl.length}개`:"수업 만들기")}
@@ -1723,7 +1734,22 @@ async function exportCourse(c){
   }finally{const b=$("#cExport");if(b)b.disabled=false}
 }
 
-let tt;function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2400)}
+/* 설치형 웹앱: GitHub Pages처럼 Claude 밖에서 열었을 때만 */
+let installEvt=null;
+const isInstalled=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const canOfferInstall=()=>standalone()&&!isInstalled()&&location.protocol==="https:";
+if(standalone()&&"serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;refresh()});
+window.addEventListener("appinstalled",()=>{installEvt=null;toast("앱을 설치했어요. 홈 화면 아이콘으로 열어 보세요");refresh()});
+async function installApp(){
+  closeDrawer();
+  if(installEvt){const e=installEvt;installEvt=null;e.prompt();try{await e.userChoice}catch(err){}refresh();return}
+  if(/iphone|ipad|ipod/i.test(navigator.userAgent))toast("사파리 아래쪽 공유 버튼 → ‘홈 화면에 추가’를 누르세요",6000);
+  else toast("브라우저 메뉴(⋮)에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 누르세요",6000);
+}
+document.addEventListener("click",e=>{if(e.target.closest("[data-install]"))installApp()});
+
+let tt;function toast(m,ms=2400){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,ms)}
 
 draw();
 
