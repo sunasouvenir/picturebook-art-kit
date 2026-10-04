@@ -1,0 +1,6 @@
+*.p12
+*.jks
+keypass.txt
+android/out/
+android/*.jar
+android/aapt2

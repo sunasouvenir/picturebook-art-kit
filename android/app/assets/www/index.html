@@ -1,13 +1,5 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>그림책 미술키트</title><meta name="description" content="그림책과 함께하는 미술 프로그램, 수업 일정, 키트 준비물을 챙기는 선생님용 앱">
-<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#F9D5C2">
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"><link rel="apple-touch-icon" href="icons/icon-180.png">
-<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="미술키트"><meta name="apple-mobile-web-app-status-bar-style" content="default">
-<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}@media (min-width:560px){body{padding-block:0!important}}</style></head><body>
 <title>그림책 미술키트</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
 <style>
 /* Layout: 폰 한 대 크기의 앱 화면. 아래만 둥근 컬러 헤더 띠 + 그림자 카드 + 파스텔 타일 (디자인 시안 v2) */
 :root{
@@ -452,7 +444,7 @@ ul.extras small{font-size:11px;color:var(--muted)}
 <aside class="sheet" id="sheet" hidden aria-modal="true" role="dialog" aria-labelledby="sheetTitle"></aside>
 <div class="toast" id="toast" hidden></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="jszip.min.js"></script>
 <script>
 /* 기본 프로그램 모음. 편집하면 공유 저장소의 같은 id 문서가 이 값을 덮어써요.
    재료: [이름, 아이 1명당 수량, 단위] — 수량 0은 반 전체 공용 */
