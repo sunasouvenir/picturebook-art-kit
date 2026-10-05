@@ -28,6 +28,8 @@ import java.io.OutputStream;
 /** 그림책 미술키트: 앱 안에 담긴 웹 화면(assets/www)을 인터넷 없이 보여 줘요. */
 public class MainActivity extends Activity {
     private WebView web;
+    private ValueCallback<Uri[]> pickCb;
+    private static final int PICK = 7;
 
     @Override
     protected void onCreate(Bundle saved) {
@@ -57,7 +59,26 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);
 
         web.addJavascriptInterface(new Bridge(), "AndroidBridge");
-        web.setWebChromeClient(new WebChromeClient());
+        web.setWebChromeClient(new WebChromeClient() {
+            // 키트 사진 넣기: 휴대폰 사진첩(갤러리)을 열어요
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
+                if (pickCb != null) pickCb.onReceiveValue(null);
+                pickCb = cb;
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("image/*");
+                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                try {
+                    startActivityForResult(Intent.createChooser(i, "사진 고르기"), PICK);
+                } catch (Exception e) {
+                    pickCb = null;
+                    toast("사진첩을 열지 못했어요");
+                    return false;
+                }
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
@@ -83,6 +104,26 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return true;
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        if (req != PICK) {
+            super.onActivityResult(req, res, data);
+            return;
+        }
+        Uri[] out = null;
+        if (res == RESULT_OK && data != null) {
+            if (data.getClipData() != null) {
+                int n = data.getClipData().getItemCount();
+                out = new Uri[n];
+                for (int k = 0; k < n; k++) out[k] = data.getClipData().getItemAt(k).getUri();
+            } else if (data.getData() != null) {
+                out = new Uri[]{data.getData()};
+            }
+        }
+        if (pickCb != null) pickCb.onReceiveValue(out);
+        pickCb = null;
     }
 
     @Override

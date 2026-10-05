@@ -119,6 +119,17 @@ button:focus-visible,input:focus-visible,a:focus-visible,select:focus-visible,te
 .kitbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .kitbtns .btn{height:40px}
 .kmemo{font-size:12px;opacity:.85;text-align:center}
+.mini img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.kphotos{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px 2px;scrollbar-width:none}
+.kphotos::-webkit-scrollbar{display:none}
+.kphotos button{flex:0 0 78%;aspect-ratio:4/3;padding:0;border:0;border-radius:16px;overflow:hidden;background:var(--sky);scroll-snap-align:start;cursor:zoom-in}
+.kphotos.one button{flex-basis:100%}
+.kphotos img{width:100%;height:100%;object-fit:cover;display:block}
+.kphoto-add{display:grid;gap:2px;place-items:center;width:100%;padding:18px 12px;border:2px dashed var(--faint);border-radius:16px;background:none;color:var(--muted);font:inherit;font-size:14px;cursor:pointer}
+.kphoto-add small{font-size:12px;opacity:.8}
+.picview{position:fixed;inset:0;z-index:90;background:rgba(10,12,18,.92);display:grid;place-items:center;padding:16px;cursor:zoom-out}
+.picview img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.picview .pv-x{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:12px;width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:24px;line-height:1}
 .nextcard{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;border:0;background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:12px 14px;text-align:left}
 .nc-ico{width:44px;height:44px;border-radius:50%;background:color-mix(in srgb,var(--c) 45%,var(--peach));display:grid;place-items:center;font-size:22px}
 .nc-tx{display:grid;min-width:0}
@@ -890,7 +901,28 @@ const addDays=(s,n)=>{const d=parseD(s)||new Date();d.setDate(d.getDate()+n);ret
 let courses=store.get("courses-local",{});   // 공유 저장소가 없을 때(내 컴퓨터에서 열 때)만 브라우저에 저장
 let cEdit=null, cConfirmDel=false;
 let kits=store.get("kits-local",{});          // 직접 만든 키트 (공유 저장소가 없으면 이 브라우저에)
-let kEdit=null, kConfirmDel=false;
+let kEdit=null, kConfirmDel=false, kUploaded=[];
+/* 키트 사진: Claude 안에서는 공유 사진 저장소, 웹사이트·휴대폰 앱에서는 이 기기 안(IndexedDB)에 저장해요 */
+const localPics=(()=>{
+  let dbp=null;const urls={};
+  const open=()=>dbp||(dbp=new Promise((ok,no)=>{const r=indexedDB.open("artkit-pics",1);r.onupgradeneeded=()=>r.result.createObjectStore("p");r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)}));
+  const tx=async(mode,fn)=>{const d=await open();return new Promise((ok,no)=>{const t=d.transaction("p",mode);const q=fn(t.objectStore("p"));t.oncomplete=()=>ok(q&&q.result);t.onerror=()=>no(t.error);t.onabort=()=>no(t.error)})};
+  return{
+    async put(blob){const id="lp-"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);await tx("readwrite",st=>st.put(blob,id));return id},
+    del(id){if(urls[id]){URL.revokeObjectURL(urls[id]);delete urls[id]}return tx("readwrite",st=>st.delete(id)).catch(()=>{})},
+    async url(id){if(urls[id])return urls[id];const b=await tx("readonly",st=>st.get(id));return b?(urls[id]=URL.createObjectURL(b)):""}};
+})();
+const isLocalPic=id=>String(id).startsWith("lp-");
+const canKitPic=()=>canKit()&&(cap.local||!!cap.assets);
+function picImg(id,alt="",extra=""){return isLocalPic(id)?`<img data-lp="${esc(id)}" alt="${esc(alt)}" ${extra}>`:`<img src="${imgSrc(id)}" alt="${esc(alt)}" ${extra} onerror="this.style.visibility='hidden'">`}
+function hydratePics(root=document){root.querySelectorAll("img[data-lp]").forEach(im=>{const id=im.dataset.lp;im.removeAttribute("data-lp");localPics.url(id).then(u=>{if(u)im.src=u;else im.style.visibility="hidden"}).catch(()=>{im.style.visibility="hidden"})})}
+function delPic(id){if(isLocalPic(id))return localPics.del(id);if(cap.assets)return cap.assets.delete(id).catch(()=>{})}
+function picView(id){
+  const ov=document.createElement("div");ov.className="picview";ov.setAttribute("role","dialog");ov.setAttribute("aria-label","사진 크게 보기");
+  ov.innerHTML=picImg(id,"키트 사진")+`<button type="button" class="pv-x" aria-label="닫기">×</button>`;
+  const close=()=>{ov.remove();window.__picClose=null};ov.onclick=close;window.__picClose=close;
+  document.body.appendChild(ov);hydratePics(ov);
+}
 const canCourse=()=>cap.db?cap.canEdit:true;
 const matKey=m=>m.n+"|"+(+m.q?m.u:"");
 function courseList(){return Object.entries(courses).map(([id,c])=>({...c,id,sessions:Array.isArray(c.sessions)?c.sessions:[],kids:+c.kids||10})).sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||""))}
@@ -907,15 +939,15 @@ async function dropCourse(id){
 let wq=Promise.resolve();
 const queue=fn=>{wq=wq.then(fn).catch(saveError);return wq};
 const plain=c=>({name:c.name,kids:c.kids,memo:c.memo||"",sessions:c.sessions,createdAt:c.createdAt||new Date().toISOString()});
-function kitList(){return Object.entries(kits).map(([id,k])=>({...k,id,items:Array.isArray(k.items)?k.items:[],kids:+k.kids||10,packed:k.packed||{}})).sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""))}
+function kitList(){return Object.entries(kits).map(([id,k])=>({...k,id,items:Array.isArray(k.items)?k.items:[],photos:Array.isArray(k.photos)?k.photos:[],kids:+k.kids||10,packed:k.packed||{}})).sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""))}
 const kitById=id=>kitList().find(k=>k.id===id);
 /* 키트를 프로그램과 같은 모양으로 (수업 주차·준비물·계획서에서 같이 쓰려고) */
-function kitP(id){const k=kitById(id);return k?{id:"kit:"+k.id,kitId:k.id,kind:"kit",title:k.name||"이름 없는 키트",icon:"🧺",color:"#A8C0E0",tech:"직접 만든 키트",age:"",time:0,books:[],steps:[],mats:k.items,ideas:[],tip:k.memo||"",kinds:["키트"],images:[],extras:[],related:[]}:null}
+function kitP(id){const k=kitById(id);return k?{id:"kit:"+k.id,kitId:k.id,kind:"kit",title:k.name||"이름 없는 키트",icon:"🧺",color:"#A8C0E0",tech:"직접 만든 키트",age:"",time:0,books:[],steps:[],mats:k.items,ideas:[],tip:k.memo||"",kinds:["키트"],images:[],pics:k.photos,extras:[],related:[]}:null}
 const sessT=s=>s.kitId?kitP(s.kitId):byId(s.programId);
 const sessKey=s=>s.kitId?"kit:"+s.kitId:s.programId;
 const itemOf=id=>String(id||"").startsWith("kit:")?kitP(id.slice(4)):byId(id);
 const canKit=()=>canCourse();
-const plainKit=k=>({name:k.name||"",memo:k.memo||"",kids:+k.kids||10,items:k.items||[],packed:k.packed||{},from:k.from||"",createdAt:k.createdAt||new Date().toISOString()});
+const plainKit=k=>({name:k.name||"",memo:k.memo||"",kids:+k.kids||10,items:k.items||[],photos:k.photos||[],packed:k.packed||{},from:k.from||"",createdAt:k.createdAt||new Date().toISOString()});
 async function putKit(id,body){
   kits={...kits,[id]:body};
   if(cap.db){refresh();await cap.db.collection("kits").doc(id).set(body)}
@@ -928,8 +960,8 @@ async function dropKit(id){
 function newKit(fromId,o={}){
   const t=fromId&&byId(fromId);
   kEdit={id:"kt-"+Date.now().toString(36),name:t?t.title+" 키트":"",memo:t?((t.books[0]?.t?`『${t.books[0].t}』 연계 · `:"")+(t.tech||"")):"",kids:10,
-    items:t?t.mats.map(m=>({n:m.n,q:+m.q||0,u:+m.q?m.u:"공용"})):[],packed:{},from:t?t.id:"",_new:true};
-  kConfirmDel=false;go("kedit",{},o);
+    items:t?t.mats.map(m=>({n:m.n,q:+m.q||0,u:+m.q?m.u:"공용"})):[],photos:[],packed:{},from:t?t.id:"",_new:true};
+  kConfirmDel=false;kUploaded=[];go("kedit",{},o);
 }
 const num=x=>String(+(+x).toFixed(1));
 function nextIdx(c){const t=todayStr();return c.sessions.findIndex(s=>s.date&&s.date>=t)}
@@ -990,11 +1022,12 @@ function go(name,p={},o={}){
   route={name,p};if(TOP.has(name))store.set("route",{name});
   draw();window.scrollTo(0,0);
 }
-function back(){route=hist.pop()||{name:"home",p:{}};draw();window.scrollTo(0,0)}
+function back(){if(route.name==="kedit"&&kUploaded.length){kUploaded.forEach(delPic);kUploaded=[]}route=hist.pop()||{name:"home",p:{}};draw();window.scrollTo(0,0)}
 function draw(){
   const S=SCREENS[route.name]||SCREENS.home;
   $("#screen").innerHTML=S.html(route.p||{});
   if(S.bind)S.bind(route.p||{});
+  hydratePics($("#screen"));
   renderTabbar();
 }
 function refresh(){
@@ -1041,7 +1074,7 @@ document.addEventListener("click",e=>{
   const kt=e.target.closest("[data-kit]");if(kt){toggleKit(kt.dataset.kit);return}
   const o=e.target.closest("[data-open]");if(o&&!o.closest("#sheet"))openSheet(o.dataset.open);
 });
-document.addEventListener("keydown",e=>{if(e.key!=="Escape")return;if(!$("#sheet").hidden)closeSheet();else if(!$("#drawer").hidden)closeDrawer()});
+document.addEventListener("keydown",e=>{if(e.key!=="Escape")return;if(window.__picClose)window.__picClose();else if(!$("#sheet").hidden)closeSheet();else if(!$("#drawer").hidden)closeDrawer()});
 
 /* ---------- 프로그램 카드 ---------- */
 function matches(t){
@@ -1237,7 +1270,7 @@ week:{html(p){
   return bar({title:`${i+1}주차 준비물`,tone:"peach",body:`<div class="datestrip">${c.sessions.map((x,j)=>{const d=parseD(x.date);return `<button class="dchip" type="button" data-wi="${j}" aria-pressed="${j===i}" aria-label="${j+1}주차 ${esc(fmtD(x.date))}"><b>${d?d.getDate():"?"}</b><small>${d?DOW[d.getDay()]:"미정"}</small></button>`}).join("")}</div>`})+
   `<div class="pad stack">
     <p class="note center">${esc(c.name)} · ${esc(fmtD(s.date))}${c.memo?` · ${esc(c.memo)}`:""}</p>
-    ${t&&t.kind==="kit"?`<button class="wprog" type="button" data-go="kitd" data-p="${dp({id:t.kitId})}"><span class="mini" style="background:#A8C0E0" aria-hidden="true">🧺</span><span class="tx"><b>${esc(t.title)}</b><small>직접 만든 키트 · 재료 ${t.mats.length}가지</small></span><span class="go" aria-hidden="true">›</span></button>`
+    ${t&&t.kind==="kit"?`<button class="wprog" type="button" data-go="kitd" data-p="${dp({id:t.kitId})}"><span class="mini" style="background:#A8C0E0" aria-hidden="true">${t.pics&&t.pics[0]?picImg(t.pics[0]):"🧺"}</span><span class="tx"><b>${esc(t.title)}</b><small>직접 만든 키트 · 재료 ${t.mats.length}가지</small></span><span class="go" aria-hidden="true">›</span></button>`
       :t?`<button class="wprog" type="button" data-open="${esc(t.id)}">${miniHTML(t)}<span class="tx"><b>${esc(t.title)}</b><small>${t.books[0]?.t?`『${esc(t.books[0].t)}』 · `:""}${esc(t.tech)} · 활동 ${esc(t.time)}분</small></span><span class="go" aria-hidden="true">›</span></button>`
       :`<div class="empty">이 주차에 넣을 프로그램이나 키트가 아직 없어요.${canCourse()?` <button class="btn primary small" type="button" data-go="pick" data-p="${dp({cid:c.id,i,step:1})}">프로그램·키트 고르기</button>`:""}</div>`}
     ${s.memo?`<p class="wmemo">${esc(s.memo)}</p>`:""}
@@ -1325,7 +1358,7 @@ kit:{html(){
   const ks=kitList();
   return bar({title:"키트",left:"menu"})+`<div class="pad stack">
     ${canKit()?`<div class="kitbtns"><button class="btn primary block" type="button" data-newkit>${ico.plus} 키트 만들기</button><button class="btn block" type="button" data-go="kimport">프로그램에서 가져오기</button></div>`:""}
-    ${ks.length?`<div class="plist">${ks.map(k=>{const src=k.from&&byId(k.from);return `<button class="wprog" type="button" data-go="kitd" data-p="${dp({id:k.id})}"><span class="mini" style="background:#A8C0E0" aria-hidden="true">🧺</span><span class="tx"><b>${esc(k.name||"이름 없는 키트")}</b><small>재료 ${k.items.length}가지 · ${k.kids}명 기준${src?` · ${esc(src.title)}에서 가져옴`:""}</small>${k.memo?`<small>${esc(k.memo)}</small>`:""}</span><span class="go" aria-hidden="true">›</span></button>`}).join("")}</div>`
+    ${ks.length?`<div class="plist">${ks.map(k=>{const src=k.from&&byId(k.from);return `<button class="wprog" type="button" data-go="kitd" data-p="${dp({id:k.id})}"><span class="mini" style="background:#A8C0E0" aria-hidden="true">${k.photos[0]?picImg(k.photos[0]):"🧺"}</span><span class="tx"><b>${esc(k.name||"이름 없는 키트")}</b><small>재료 ${k.items.length}가지 · ${k.kids}명 기준${src?` · ${esc(src.title)}에서 가져옴`:""}</small>${k.memo?`<small>${esc(k.memo)}</small>`:""}</span><span class="go" aria-hidden="true">›</span></button>`}).join("")}</div>`
       :`<div class="empty"><b>아직 만든 키트가 없어요</b><span>‘키트 만들기’로 재료를 직접 넣거나, ‘프로그램에서 가져오기’로 프로그램 준비물을 옮겨 와서 고칠 수 있어요.</span></div>`}
   </div>`},
   bind(){$$("[data-newkit]").forEach(b=>b.onclick=()=>newKit())}},
@@ -1335,6 +1368,8 @@ kitd:{html(p){
   if(!k)return bar({title:"키트",tone:"sky"})+`<div class="pad"><div class="empty">키트를 찾지 못했어요.</div></div>`;
   const n=k.kids;const done=k.items.filter(m=>k.packed[matKey(m)]).length;
   return bar({title:k.name||"키트",tone:"sky",body:k.memo?`<p class="kmemo">${esc(k.memo)}</p>`:""})+`<div class="pad stack">
+    ${k.photos.length?`<section class="kphotos${k.photos.length===1?" one":""}" aria-label="키트 사진">${k.photos.map((id,i)=>`<button type="button" data-pv="${esc(id)}" aria-label="사진 ${i+1} 크게 보기">${picImg(id,"",'loading="lazy"')}</button>`).join("")}</section>`
+      :canKitPic()?`<button class="kphoto-add" type="button" id="kPicAdd">📷 키트 사진 넣기<small>완성작·재료 사진을 남겨 두세요</small></button>`:""}
     <section class="card-w"><div class="kids"><label for="kkids">아이 수</label><span class="stepper2"><button type="button" data-kk="-1" aria-label="한 명 줄이기">−</button><input id="kkids" type="number" min="1" max="200" inputmode="numeric" value="${n}" ${canKit()?"":"disabled"}><button type="button" data-kk="1" aria-label="한 명 늘리기">+</button></span><span class="note">명 기준으로 계산</span></div></section>
     <section class="card-w"><div class="rowhead"><h3 class="sec-t">챙길 재료 <span class="note">${done}/${k.items.length} 챙김</span></h3><button class="btn small" type="button" id="kCopy">목록 복사</button></div>
       <ul class="checks">${k.items.map(m=>`<li><label><input type="checkbox" data-kpack="${esc(matKey(m))}" ${k.packed[matKey(m)]?"checked":""} ${canKit()?"":"disabled"}><span class="nm">${esc(m.n)}</span><span class="q">${+m.q?`${num(m.q*n)} ${esc(m.u)}`:"공용"}</span></label></li>`).join("")||`<li class="note">아직 재료가 없어요.</li>`}</ul></section>
@@ -1349,7 +1384,10 @@ kitd:{html(p){
     $$("[data-kpack]").forEach(cb=>cb.onchange=()=>{const cur=kitById(k.id);const packed={...cur.packed};if(cb.checked)packed[cb.dataset.kpack]=true;else delete packed[cb.dataset.kpack];save({packed})});
     $("#kCopy").onclick=()=>{const cur=kitById(k.id);const n=cur.kids;
       copyText([`[${cur.name}] 키트 준비물 · 아이 ${n}명`,...(cur.memo?[cur.memo]:[]),"",...cur.items.map(m=>`- ${m.n}: ${+m.q?num(m.q*n)+" "+m.u:"공용"}`)].join("\n"),"키트 준비물을 복사했어요")};
-    if($("#kEditBtn"))$("#kEditBtn").onclick=()=>{kEdit=JSON.parse(JSON.stringify(kitById(k.id)));kConfirmDel=false;go("kedit")};
+    const edit=()=>{kEdit=JSON.parse(JSON.stringify(kitById(k.id)));kEdit._orig=[...kEdit.photos];kConfirmDel=false;kUploaded=[];go("kedit")};
+    if($("#kEditBtn"))$("#kEditBtn").onclick=edit;
+    if($("#kPicAdd"))$("#kPicAdd").onclick=edit;
+    $$("[data-pv]").forEach(b=>b.onclick=()=>picView(b.dataset.pv));
   }},
 
 kimport:{html(p){
@@ -1372,6 +1410,10 @@ kedit:{html(){
       <label class="fld"><span>설명·메모 (선택)</span><textarea id="k-memo" rows="2" placeholder="예: 3세반용, 가위 대신 손으로 찢기">${esc(k.memo||"")}</textarea></label>
       <label class="fld"><span>아이 수 (기본)</span><input id="k-kids" type="number" min="1" max="200" value="${esc(k.kids||10)}"></label>
     </fieldset>
+    ${canKitPic()?`<fieldset><legend>사진</legend>
+      <div class="imgs" id="kpics"></div>
+      <span class="hint">첫 번째 사진이 키트 대표 사진이 돼요. 큰 사진은 자동으로 줄여서 넣어요.${cap.local?" 사진은 이 기기 안에 저장돼요.":""}</span>
+    </fieldset>`:""}
     <fieldset><legend>재료 (아이 1명 기준)</legend>
       <div id="kmats" style="display:grid;gap:6px"></div>
       <button class="btn small" type="button" id="kAddMat" style="justify-self:start">+ 재료 추가</button>
@@ -1385,15 +1427,16 @@ kedit:{html(){
     </div></form></div>`},
   bind(){
     if(!kEdit){setTimeout(back,0);return}
-    renderKMats();
+    renderKMats();renderKPics();
     $("#kAddMat").onclick=()=>{syncKForm();kEdit.items.push({n:"",q:1,u:"개"});renderKMats();const r=$("#kmats").lastElementChild;r&&r.querySelector("input").focus()};
-    $("#kCancel").onclick=()=>{kEdit=null;back()};
+    $("#kCancel").onclick=()=>{kUploaded.forEach(delPic);kUploaded=[];kEdit=null;back()};
     if($("#kDel"))$("#kDel").onclick=async()=>{if(!kConfirmDel){syncKForm();kConfirmDel=true;draw();return}
-      try{const id=kEdit.id;kEdit=null;await dropKit(id);toast("키트를 삭제했어요");go("kit",{},{root:true})}catch(err){saveError(err)}};
+      try{const id=kEdit.id;const pics=[...new Set([...(kEdit._orig||[]),...kEdit.photos,...kUploaded])];kEdit=null;kUploaded=[];await dropKit(id);pics.forEach(delPic);toast("키트를 삭제했어요");go("kit",{},{root:true})}catch(err){saveError(err)}};
     $("#kform").onsubmit=async e=>{e.preventDefault();syncKForm();
       if(!kEdit.name){toast("키트 이름을 적어 주세요");$("#k-name").focus();return}
       const id=kEdit.id;const body=plainKit({...kEdit,items:kEdit.items.filter(m=>m.n)});
-      try{kEdit=null;await putKit(id,body);toast("키트를 저장했어요");
+      const gone=[...(kEdit._orig||[]),...kUploaded].filter(x=>!body.photos.includes(x));
+      try{kEdit=null;await putKit(id,body);gone.forEach(delPic);kUploaded=[];toast("키트를 저장했어요");
         while(hist.length&&["kedit","kimport"].includes(hist[hist.length-1].name))hist.pop();
         if(hist.length&&hist[hist.length-1].name==="kitd")hist.pop();
         go("kitd",{id},{replace:true});
@@ -1436,6 +1479,28 @@ function renderKMats(){
     <button class="x" type="button" data-delkm="${i}" aria-label="재료 빼기">×</button></div>`).join("")||`<p class="note">아직 재료가 없어요. ‘+ 재료 추가’를 눌러 넣어 주세요.</p>`;
   $("#kmats").querySelectorAll("[data-delkm]").forEach(b=>b.onclick=()=>{syncKForm();kEdit.items.splice(+b.dataset.delkm,1);renderKMats()});
   $("#kmats").querySelectorAll("[data-k=shared]").forEach(cb=>cb.onchange=()=>{syncKForm();const m=kEdit.items[+cb.closest(".matrow").dataset.i];if(cb.checked){m.q=0;m.u="공용"}else{m.q=1;m.u="개"}renderKMats()});
+}
+function renderKPics(){
+  const box=$("#kpics");if(!box||!kEdit)return;
+  box.innerHTML=kEdit.photos.map((id,i)=>`<figure class="${i===0?"cover":""}">${picImg(id,`사진 ${i+1}`)}<figcaption>${i===0?"<span>대표 사진</span>":`<button type="button" data-kcover="${i}">대표로</button>`}<button type="button" data-kdelpic="${i}">빼기</button></figcaption></figure>`).join("")+
+    `<label class="upload" id="kUpLabel"><span>+ 사진 넣기<br><small>여러 장 가능</small></span><input type="file" id="k-files" accept="image/*" multiple></label>`;
+  hydratePics(box);
+  box.querySelectorAll("[data-kcover]").forEach(b=>b.onclick=()=>{const i=+b.dataset.kcover;kEdit.photos.unshift(kEdit.photos.splice(i,1)[0]);renderKPics()});
+  box.querySelectorAll("[data-kdelpic]").forEach(b=>b.onclick=()=>{kEdit.photos.splice(+b.dataset.kdelpic,1);renderKPics()});
+  $("#k-files").onchange=e=>addKPics([...e.target.files]);
+}
+async function addKPics(files){
+  if(!kEdit||!files.length)return;
+  syncKForm();
+  const lab=$("#kUpLabel");if(lab)lab.querySelector("span").textContent="넣는 중…";
+  for(const f of files){
+    try{const blob=await shrink(f);
+      const id=cap.local?await localPics.put(blob):(await cap.assets.upload(blob,{type:blob.type||f.type})).id;
+      if(!kEdit){delPic(id);return}
+      kEdit.photos.push(id);kUploaded.push(id)}
+    catch(err){const c=err&&err.code;toast(c==="too_large"?"사진이 너무 커요(20MB 이하)":c==="unsupported_type"?"PNG, JPG, WEBP, GIF 사진만 넣을 수 있어요":c==="quota_or_state"||(err&&err.name==="QuotaExceededError")?"저장 공간이 가득 찼어요. 안 쓰는 사진을 지워 주세요":"사진을 넣지 못했어요. 잠시 뒤 다시 시도해 주세요")}
+  }
+  renderKPics();
 }
 function syncKForm(){
   if(!kEdit||!$("#kform"))return;
@@ -1888,6 +1953,7 @@ async function exportCourse(c){
 
 /* 휴대폰 앱(APK)의 뒤로 가기 버튼: 처리했으면 true */
 window.__androidBack=()=>{
+  if(window.__picClose){window.__picClose();return true}
   if(!$("#sheet").hidden){closeSheet();return true}
   if(!$("#drawer").hidden){closeDrawer();return true}
   if(hist.length){back();return true}
@@ -1945,5 +2011,6 @@ function listen(db){
   listen(db);refresh();
 })();
 </script>
+
 
 </body></html>
